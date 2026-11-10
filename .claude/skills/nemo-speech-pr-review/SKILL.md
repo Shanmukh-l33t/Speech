@@ -160,88 +160,34 @@ Each rule is a position the maintainers enforced repeatedly. General good practi
 
 ## Approval guardrails
 
-These guardrails decide when an automated review may approve a PR without a maintainer. They come from the ASR and
-TTS PRs that maintainers closed or required to be reworked between 2020 and 2026. A PR can satisfy every principle
-above and still trip one.
+An automated review may approve on its own only additive work: new files placed per the collection layout, opt-in,
+built on existing code, with tests and docs. First map every changed path, default, signature, and serialized name
+against the PR description.
 
-New features may merge without a maintainer when they are **additive**. That means:
+**Never approve** (blocking):
 
-- They live in their own files, in the place the collection's layout puts them.
-- They are opt-in, so existing models, configs, and public APIs behave exactly as before.
-- They extend existing code instead of copying it.
-- They ship with tests and docs.
+- Changes the description does not explain, such as leftovers from a stale fork or a bad rebase.
+- Broken released checkpoints: a renamed or removed config key, `state_dict` key, class, or import path, or changed
+  tokenizer IDs, without a back-compat path tested on an old artifact.
+- A changed default computation in a shared module, where the change should have been opt-in.
+- A specific model's name, class, or constants in shared code.
+- Swallowed failures or silent fallbacks.
+- Tests weakened to make CI pass.
+- Mechanical repo-wide sweeps.
+- Internal paths, datasets, or unreleased model names.
 
-The guardrails catch three other kinds of change: changes that sprawl across the codebase, changes that put backward
-compatibility at risk, and changes that go against how the repository is organized.
+**Leave approval to a maintainer.** Review the PR fully, then name what triggered the guardrail and the decision the
+maintainer must make.
 
-Before judging, map the diff: every changed path, default, public signature, and serialized name. Compare that map
-with the PR description. Lines in new, self-contained files count as additive. What counts is how many existing files
-change and how they change.
-
-### Never approve
-
-Report each of these as a blocking finding.
-
-- **The diff goes beyond its description.** Some changed files belong to other collections, CI, Docker,
-  requirements, docs, or notebooks, and the description does not explain them. Such files usually come from a stale
-  fork or a bad rebase. Ask for a clean branch that holds only the described change. Evidence: #2523, #4638, #15772,
-  #15949.
-- **Released checkpoints stop loading or change behavior.** Released `.nemo` files reference config keys, constructor
-  arguments, `state_dict` keys, submodule attributes, classes, `_target_` values, and import paths. Renaming,
-  removing, or moving any of them counts. So does changing a released tokenizer's charset, vocabulary order, special
-  tokens, or token IDs. The only exception is a back-compat path tested by restoring the old artifact. Evidence:
-  #4128, #15211, #15614.
-- **Shared modules change their default computation.** Conformer and attention blocks, subsampling, preprocessors,
-  losses, and decoding all run under released checkpoints. A change to their forward computation, layer layout,
-  output lengths, or neural types must be opt-in, with the old behavior as the default. Evidence: #3072, #6479,
-  #12246.
-- **Shared code names a model.** This covers model names, classes, `model_type` checks, and constants of one model
-  family added to `nemo/core`, `nemo/collections/common`, ASR mixins, or shared decoding, metric, or timestamp code.
-  Evidence: #5712, #8438, #9193, #12774.
-- **Failures are swallowed.** This covers skipping or substituting bad samples and downgrading an error to a warning.
-  It also covers `cfg.get(key, default)` on a key that was required, and silently falling back to another file,
-  algorithm, or device. Evidence: #3222, #10319, #12190, #16193.
-- **Tests are weakened to pass CI.** This covers commenting out tests or assertions, adding `pleasefixme` or skip
-  markers without a root cause, and loosening tolerances. It also covers tests that no longer exercise the changed
-  code. Evidence: #1097, #2975, #4343, #10086.
-- **Changes sweep across the repository mechanically.** This covers removing unused imports, reformatting untouched
-  code, bumping formatter or linter versions, swapping APIs mechanically, and converting `print` to logging in
-  existing utilities. Each of these PRs was closed or reverted. Evidence: #5099, #7017, #8344, #15700.
-- **The PR adds internal-only material.** This covers cluster or home-directory paths, internal datasets, launch
-  scripts, and names of unreleased models in public code, configs, or docs. Evidence: #3860, #6081, #12082, #15158.
-
-### Approve only with a maintainer
-
-Review these PRs fully, but do not approve them. In the summary, name the guardrail, the part of the diff that trips
-it, and the decision the maintainer must make.
-
-- **Changed behavior of existing models.** This covers a flipped default, a new option that is on by default, and
-  changed values in shipped configs. It also covers changed numerics or outputs on a path that released checkpoints
-  use, even as a bug fix. Ask for a before-and-after metric on a released checkpoint. For legacy models that no team
-  trains anymore, maintainers prefer to leave the behavior alone or remove the dead component. Evidence: #1527,
-  #6656, #9590, #16171.
-- **Changed or removed public contracts.** This covers changing the return type, arity, or meaning of `transcribe()`
-  output, `Hypothesis`, decoding outputs, metrics, dataset batches, or `forward` and export signatures. It also covers
-  removing or renaming a public argument, config key, CLI flag, model class, config, or pretrained entry. Adding
-  something new does not count. The owners of a removed model must confirm in the PR. Evidence: #4820, #8428, #8589,
-  #15368.
-- **Changed shared infrastructure.** This covers changes to the existing behavior or interfaces of `nemo/core` (such
-  as `ModelPT`, save and restore, and `Exportable`) and of the base model classes and `asr/parts/mixins`. It also
-  covers the shared data path: `AudioSegment`, manifest resolution, `common/data/lhotse`, shared datasets, samplers,
-  and the `cut.custom` schema. Distributed collectives and rank guards count too. A new opt-in hook or option that
-  leaves current behavior unchanged does not count. Evidence: #3092, #5727, #8363, #13129, #13526.
-- **Sprawling or bundled PRs.** This covers edits spread across many existing files or several collections, and PRs
-  that bundle independent features or a feature with a refactor. A maintainer decides whether to split the PR.
-  Evidence: #1708, #5499, #13203, #15158.
-- **Changes to the repository's organization.** This covers a new top-level collection or package, moving or
-  renaming modules across packages or collections, and a second implementation of something that already exists,
-  such as a model class, dataset, entry script, or decoding path. Evidence: #4609, #7713, #11462, #13360.
-- **Dependencies, build, and CI.** This covers new packages, changed version pins, Dockerfiles, `.github/workflows`,
-  pre-commit and formatter configuration, and `package_info.py`. It also covers `torch.load(weights_only=False)`.
-  Evidence: #4103, #10086, #14740, #16114.
-- **Third-party code.** This covers code copied, ported, or adapted from another repository, including other NVIDIA
-  codebases. A maintainer confirms the license, and the file header keeps the upstream copyright notice. Evidence:
-  #968, #1180, #3860.
+- Changed behavior of existing models, meaning defaults, numerics, or outputs, even in a bug fix. Ask for
+  before-and-after metrics on a released checkpoint.
+- Public contracts changed or removed. Additions are fine.
+- Changed behavior in shared infrastructure: `nemo/core`, base models, mixins, shared data loading, or distributed
+  sync.
+- Sprawl: many existing files or collections touched, or independent changes bundled together.
+- Reorganization: a new collection or package, moved modules, or a second implementation of something that exists.
+- Dependencies, build, or CI.
+- Third-party code, because its license needs checking.
 
 ## Findings and completion
 
